@@ -20,7 +20,7 @@
 #
 # v0.3.0 used sparse matrix, multiprocess.Pool and numba.jit whenever appropriate 
 # Added an analytical solution in calculating the gradient of 'squared' loss
-# Note: now 'squared' loss is much faster than the 'absolute' loss  08/02/2017
+# NOTE: now 'squared' loss is much faster than the 'absolute' loss  08/02/2017
 # v0.3.1 added a 'silhouette' loss function 08/05/2017
 # v0.3.2 added a centroid loss function 08/05/2017
 #
@@ -36,14 +36,17 @@
 #
 ####################################################################################################
 
-import os
-import pandas as pd
-import numpy as np
-from scipy.sparse import csr_matrix, csc_matrix, issparse
 import functools
-from multiprocessing import Pool, cpu_count
-from numba import jit
+import os
 import time
+from multiprocessing import Pool, cpu_count
+
+import numpy as np
+import pandas as pd
+from numba import jit
+from scipy.sparse import csc_matrix, csr_matrix, issparse
+
+from activations import *
 
 ####################################################################################################
 # The following functions load a network, samples, and group labels from files
@@ -53,11 +56,11 @@ import time
 # Return edges (e by 2) and features (e by w), 
 # and node2index (optionally written into a file)
 # (can also optionally add self-loops)
-# Note: (i, j) and (j, i) should be 2 lines in the input file, 
+# NOTE: (i, j) and (j, i) should be 2 lines in the input file, 
 # with different features
 def load_network(file_name, output_dir='', add_selfloop=True):
     # Load a graph
-    print "* Loading network..."
+    print("* Loading network...")
     df = pd.read_table(file_name)
     nfeatures = len(df.columns) - 2
     if add_selfloop:
@@ -82,7 +85,7 @@ def load_network(file_name, output_dir='', add_selfloop=True):
 
     if output_dir:
         # Set up an output directory
-        print "* Saving node list to file..."
+        print("* Saving node list to file...")
         os.system('mkdir -p ' + output_dir)
         with open("{}/index_nodes".format(output_dir), 'w') as outfile:
             outfile.write( "\n".join(index_map) )
@@ -100,13 +103,13 @@ def load_samples(file_name, nodes, output_dir=''):
     # df should be a sample by node matrix
     samples = df.index
     node_set = set(df.columns)&set(nodes)
-    print "\t- Nodes in adjacency matrix:", len(node_set)
+    print("\t- Nodes in adjacency matrix:", len(node_set))
     
     # Index mapping for samples
     sample2index = {samples[i]: i for i in range(len(samples))}
     if output_dir:
         # Set up output directory
-        print "* Saving sample list to file..."
+        print("* Saving sample list to file...")
         os.system( 'mkdir -p ' + output_dir)
         index_map = ["{}\t{}".format(i, samples[i]) for i in range(len(samples))]
         with open("{}/index_samples".format(output_dir), 'w') as outfile:
@@ -132,19 +135,9 @@ def load_grouplabels(file_name):
 # The following functions calculate the gradients of the transition matrix Q and PageRank scores P
 ####################################################################################################
 
-# Return the edge strength (e by 1) calculated by a logistic function
-# Inputs: edge features (e by w) and edge feature weights (vector w)
-def logistic_edge_strength(features, w):
-    return  1.0 / (1+np.exp(-features.dot(w)))
-
-
-# Calculate the gradient of edge strength functioin with
-# respect to edge feature weights, returns a matrix of gradients (e by w)
-# Equation: dStrength/dw = features * edge_strength * (1-edge_strength)
-def logistic_strength_gradient(features, edge_strength):
-    logistic_slop = np.multiply(edge_strength, (1-edge_strength))[:,np.newaxis]
-    return features.multiply(logistic_slop)
-
+'''
+For readability, move all activation and grads function to activations.py
+'''
 
 # Normalize a matrix by row sums,
 # return a normalized matrix
@@ -157,11 +150,23 @@ def renorm(M):
 # then retruns a transition matrix Q (n by n), un-normalized
 # transition matrix M_strength (n by n), row sums of M_strength (n by 1), 
 # and the gradient of edge strength (e by w)
-# Note: (i, j) and (j, i) should be 2 rows in edges, with different features
-def strength_Q_and_gradient(edges, nnodes, features, w):
+# NOTE: (i, j) and (j, i) should be 2 rows in edges, with different features
+def strength_Q_and_gradient(edges, nnodes, features, w, activation_func):
     # Calculate edge strength and the gradient of strength
-    edge_strength = logistic_edge_strength(features, w)
-    strength_grad = logistic_strength_gradient(features, edge_strength)
+    edge_strength = None
+    strength_grad = None
+    if activation_func == 'sigmoid':
+        edge_strength = logistic_edge_strength(features, w) #(e,1)
+        strength_grad = logistic_strength_gradient(features, edge_strength) #(e,w)
+
+    if activation_func == 'tanh_relu':
+        edge_strength = tanh_edge_strength(features, w) #(e,1)
+        strength_grad = tanh_strength_gradient(features, edge_strength) #(e,w)
+
+    if activation_func == 'softplus':
+        edge_strength = softplus_edge_strength(features, w) #(e,1)
+        strength_grad = softplus_strength_gradient(features, edge_strength) #(e,w)
+
     # M_strength (n by n) is a matrix containing edge strength
     # where M[i,j] = strength[i,j];
     M_strength = csr_matrix((edge_strength, (edges[:,0], edges[:,1])), 
@@ -211,6 +216,8 @@ def Q_gradient_1feature(edges, nnodes, M_strength, M_strength_rowSum, strength_g
     return csr_matrix(Q_grad)
 
 
+# -----------------------Function for comparison matrix--------------#
+
 # This is the allclose comparison for sparse matrices
 def csr_allclose(a, b, rtol=1e-5, atol = 1e-8):
     c = np.abs(a-b) - rtol*np.abs(b)
@@ -223,7 +230,11 @@ def jit_allclose(a, b, rtol=1e-5, atol = 1e-8):
     c = np.abs(a-b) - rtol*np.abs(b)
     return c.max() <= atol
 
+# -----------------------Function for comparison matrix--------------#
 
+'''
+Function for random walk iteration
+'''
 # This function takes a normalized transition matrix Q (n by n), 
 # initial state P_init (m by n), and reset probability,
 # then use iteration to find the personalized PageRank at convergence.
@@ -510,21 +521,21 @@ class SRW_solver(object):
     def __init__(self, edges, features, nnodes, P_init, rst_prob, group_labels, lam, w_init_sd=0.01, 
                  w=None, feature_names=[], sample_names=[], node_names=[], loss='WMW', 
                  norm_type='L1', learning_rate=0.1, update_w_func='Adam', P_init_val=None, 
-                 group_labels_val=None, ncpus=-1, maxit=1000, early_stop=None, WMW_b=2e-4):
-        self.edges = edges                 # Edges in the network (e by 2, int, ndarray)
-        self.features = features           # Edge features (e by w, float, csc_matrix)
-        self.nnodes = nnodes               # Number of nodes in the network (int)
-        self.P_init = P_init               # Initial state of training samples (m by n, float, csr_matrix)
-        self.rst_prob = rst_prob           # reset probability of Random Walk (float)
-        self.group_labels = group_labels   # Group labels of training samples (m by 1, str/int, list)
-        self.lam = lam                     # Regularization parameter for controlling L1/L2 norm (float)
-        self.w_init_sd = w_init_sd         # Standard deviation for weight initialization (float)
-        self.loss = loss                   # Type of the loss funtion {'WMW'}
-        self.norm_type = norm_type         # Type of the norm {'L1', 'L2'}
-        self.learning_rate = learning_rate # Learning rate (float)
-        self.update_w_func = update_w_func # Function for updating parameters {'momentum', 'Nesterov', 'Adam', 'Nadam'}
-        self.P_init_val = P_init_val       # Initial state of validation samples (m by n, float, csr_matrix)
-        self.group_labels_val = group_labels_val # Group labels of validation samples (m by 1, str/int, list)
+                 group_labels_val=None, ncpus=-1, maxit=1000, early_stop=None, WMW_b=2e-4, activation_func='sigmoid'):
+        self.edges = edges                          # Edges in the network (e by 2, int, ndarray)
+        self.features = features                    # Edge features (e by w, float, csc_matrix)
+        self.nnodes = nnodes                        # Number of nodes in the network (int)
+        self.P_init = P_init                        # Initial state of training samples (m by n, float, csr_matrix)
+        self.rst_prob = rst_prob                    # reset probability of Random Walk (float)
+        self.group_labels = group_labels            # Group labels of training samples (m by 1, str/int, list)
+        self.lam = lam                              # Regularization parameter for controlling L1/L2 norm (float)
+        self.w_init_sd = w_init_sd                  # Standard deviation for weight initialization (float)
+        self.loss = loss                            # Type of the loss funtion {'WMW'}
+        self.norm_type = norm_type                  # Type of the norm {'L1', 'L2'}
+        self.learning_rate = learning_rate          # Learning rate (float)
+        self.update_w_func = update_w_func          # Function for updating parameters {'momentum', 'Nesterov', 'Adam', 'Nadam'}
+        self.P_init_val = P_init_val                # Initial state of validation samples (m by n, float, csr_matrix)
+        self.group_labels_val = group_labels_val    # Group labels of validation samples (m by 1, str/int, list)
         
         # This part creat some lists for calculating group centroids
         (self.group2indeces_list, self.sample2groupid_list, 
@@ -573,6 +584,7 @@ class SRW_solver(object):
         self.Q = None # Transition matrix
         
         self.WMW_b = WMW_b # Parameter b in the WMW loss function
+        self.activation_func = activation_func
         
         
     # Initialize edge feature weights from a Gaussian distribution, 
@@ -671,22 +683,23 @@ class SRW_solver(object):
         self.Q, M_strength, M_strength_rowSum, strength_grad = strength_Q_and_gradient(self.edges, 
                                                                                        self.nnodes, 
                                                                                        self.features, 
-                                                                                       w_local)
-        print 'finished calculating strength_grad:', time.strftime("%H:%M:%S")
+                                                                                       w_local,
+                                                                                       self.activation_func)
+        print('finished calculating strength_grad:', time.strftime("%H:%M:%S"))
 
         # Calculate Personalized PageRank (PPR)
         P = csr_matrix(iterative_PPR(self.Q.toarray(), renorm(self.P_init).toarray(), self.rst_prob))
-        print 'finished network propagation:', time.strftime("%H:%M:%S")
+        print('finished network propagation:', time.strftime("%H:%M:%S"))
 
         # Calculate the gradient of PPR (w by m by n)
         P_grad = calc_P_grad_pool(self.edges, self.nnodes, M_strength, M_strength_rowSum, self.Q, P, 
                                   self.rst_prob, strength_grad, self.ncpus)
-        print 'finished calculating P_grad using pool:', time.strftime("%H:%M:%S")
+        print('finished calculating P_grad using pool:', time.strftime("%H:%M:%S"))
 
         # Calculate objective function J (scalar), 
         # and its gradient J_grad (length w vector)
         J, J_grad = self.obj_func_and_grad(P, P_grad, w_local)
-        print 'finished calculating J and J_grad:', time.strftime("%H:%M:%S")
+        print('finished calculating J and J_grad:', time.strftime("%H:%M:%S"))
         
         return J, J_grad
 
@@ -702,10 +715,10 @@ class SRW_solver(object):
     def calc_J_Jgrad_wrapper(self, w_local, t):
         J, J_grad = self.calculate_J_and_gradient(w_local)
         self.calc_cost_and_acc_val()
-        print '***', t, 'iteration: J is', J, 'cost_val is', self.cost_val
-        print '*** accuracy is', self.accuracy, 'accuracy_val is', self.accuracy_val
+        print('***', t, 'iteration: J is', J, 'cost_val is', self.cost_val)
+        print('*** accuracy is', self.accuracy, 'accuracy_val is', self.accuracy_val)
         # print w_local, '\n'
-        print '\n'
+        print('\n')
         self.cost_val_list.append(self.cost_val)
         self.w_list.append(w_local.copy())
         return J, J_grad
