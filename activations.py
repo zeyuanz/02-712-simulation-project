@@ -6,8 +6,8 @@ import numpy as np
 # Inputs: edge features (e by w) and edge feature weights (vector w)
 '''
 sigmoid() activation function
-NOTE 1: high accuracy ~0.92
-NOTE 2: stable, always above 0.90
+NOTE 1: accuracy: 0.952 std: 0.0236
+NOTE 2: stable
 '''
 def logistic_edge_strength(features, w):
     '''
@@ -39,8 +39,8 @@ def logistic_strength_gradient(features, edge_strength):
 tanh() activation function with ReLu()
 NOTE 1: Not working, random walk diverges
 NOTE 2: With ReLU(), it works. It seems we have to force the activated value to be positive
-NOTE 3: Accuracy: 0.6-0.7 (training) (with 100 iterations, other default)
-NOTE 4: Unstable accuracy value varies
+NOTE 3: Accuracy: 0.663 std: 0.1134
+NOTE 4: Unstable, poor accuracy varies
 
 TODO: is there anything wrong the the gradient?
 '''
@@ -58,12 +58,22 @@ def tanh_strength_gradient(features, strength):
 
 '''
 softplus() activation function
-NOTE 1: This one seems pretty good, ~0.93 accuracy, max ~0.97
-NOTE 2: stable, performance similar to sigmoid
+NOTE 1: accuracy: 0.941 std: 0.013
 '''
 def softplus_edge_strength(features, w):
     return np.log(1 + np.exp(features.dot(w)))
 
 def softplus_strength_gradient(features, strength):
     grad = (strength / (1.0 + strength))[:,np.newaxis]
+    return features.multiply(grad)
+
+'''
+gaussian() activation function: e^{x^2}
+NOTE 1: accuracy: 0.959 std: 0.0453
+'''
+def gaussian_edge_strength(features, w):
+    return np.exp(-(features.dot(w) ** 2))
+
+def gaussian_strength_gradient(features, strength, w):
+    grad = (-2 * features.dot(w) * strength)[:,np.newaxis]
     return features.multiply(grad)

@@ -167,6 +167,10 @@ def strength_Q_and_gradient(edges, nnodes, features, w, activation_func):
         edge_strength = softplus_edge_strength(features, w) #(e,1)
         strength_grad = softplus_strength_gradient(features, edge_strength) #(e,w)
 
+    if activation_func == 'gaussian':
+        edge_strength = gaussian_edge_strength(features, w) #(e,1)
+        strength_grad = gaussian_strength_gradient(features, edge_strength, w) #(e,w)
+
     # M_strength (n by n) is a matrix containing edge strength
     # where M[i,j] = strength[i,j];
     M_strength = csr_matrix((edge_strength, (edges[:,0], edges[:,1])), 
