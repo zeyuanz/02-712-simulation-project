@@ -183,9 +183,22 @@ def strength_Q_and_gradient(edges, nnodes, features, w, activation_func):
 
 # This function generates a transition matrix Q (n by n)
 # without calculating gradients
-def generate_Q(edges, nnodes, features, w):
+def generate_Q(edges, nnodes, features, w, activation_func):
     # Calculate edge strength
-    edge_strength = logistic_edge_strength(features, w)
+    edge_strength = None
+
+    if activation_func == 'sigmoid':
+        edge_strength = logistic_edge_strength(features, w) #(e,1)
+
+    if activation_func == 'tanh_relu':
+        edge_strength = tanh_edge_strength(features, w) #(e,1)
+
+    if activation_func == 'softplus':
+        edge_strength = softplus_edge_strength(features, w) #(e,1)
+
+    if activation_func == 'gaussian':
+        edge_strength = gaussian_edge_strength(features, w) #(e,1)
+
     # M_strength (n by n) is a matrix containing edge strength
     # where M[i,j] = Strength[i,j];
     M_strength = csr_matrix((edge_strength, (edges[:,0], edges[:,1])), 
@@ -772,7 +785,7 @@ class SRW_solver(object):
     
     # This function generate the final Q and P after the training
     def generate_Q_and_P_fin(self):
-        self.Q_fin = generate_Q(self.edges, self.nnodes, self.features, self.w)
+        self.Q_fin = generate_Q(self.edges, self.nnodes, self.features, self.w, self.activation_func)
         self.P_fin = iterative_PPR(self.Q_fin.toarray(), renorm(self.P_init).toarray(), 
                                    self.rst_prob)
         if len(self.node_names) == self.nnodes:
