@@ -90,8 +90,8 @@ def load_network(file_name, output_dir='', add_selfloop=True):
         with open("{}/index_nodes".format(output_dir), 'w') as outfile:
             outfile.write( "\n".join(index_map) )
             
-    edges = df.iloc[:,:2].applymap(lambda x: node2index[x]).as_matrix()
-    features = csc_matrix(df.iloc[:,2:].as_matrix())
+    edges = df.iloc[:,:2].applymap(lambda x: node2index[x]).values
+    features = df.iloc[:,2:].values
     return edges, features, nodes
 
 
@@ -117,7 +117,7 @@ def load_samples(file_name, nodes, output_dir=''):
     
     P_init = pd.DataFrame(index=df.index, columns=nodes)
     P_init.update(df)
-    P_init = csr_matrix(P_init.fillna(0).as_matrix())
+    P_init = P_init.fillna(0).values
     return P_init, samples
 
 
